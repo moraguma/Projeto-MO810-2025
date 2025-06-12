@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from torch.utils.data import Dataset, DataLoader, Subset, random_split
 import torch.nn.functional as F
 import lightning as L
 import numpy as np
@@ -91,7 +92,7 @@ class PrunedBirdCLEFDataset(MO810Dataset):
         audio_tensor = Tensor(audio.get_array_of_samples())
         audio_tensor = F.pad(audio_tensor, (0, audio.frame_rate * MAX_LENGTH - audio_tensor.shape[0])).unsqueeze(0)
 
-        return audio_tensor, label, audio.frame_rate
+        return audio_tensor, label
 
     def __getitem__(self, index):
         """
@@ -104,10 +105,15 @@ class PrunedBirdCLEFDataset(MO810Dataset):
             Sample from the dataset.
         """
         if self.load_mode == "disk":
-            return self.load_item(index)
+            audio_tensor, label = self.load_item(index)
         elif self.load_mode == "ram":
-            return self.ram_data[index]
-    
+            audio_tensor, label = self.ram_data[index]
+
+        if self.transform:
+            audio_tensor = self.transform(audio_tensor)
+        
+        return audio_tensor, label
+
     def __str__(self):
         """
         Returns:
@@ -118,12 +124,67 @@ class PrunedBirdCLEFDataset(MO810Dataset):
             s += f"\n  Number of classes: {self.dataset_specs[self.split][-1][1] + 1}"
         return s
 
-class MO810DataModule(L.LightningDataModule):
+
+class TransformedSubset(Dataset):
+    """
+    A dataset wrapper for applying a different transform to a subset of a dataset.
+
+    This is useful when you want to change the transformation pipeline (e.g., data augmentation)
+    for a specific subset, such as using a different transform for validation or testing
+    while keeping the original dataset unchanged.
+
+    Attributes:
+        subset (torch.utils.data.Subset): The original subset of the dataset.
+        transform (callable, optional): A function/transform that takes in a data sample and returns a transformed version.
+    """
+
+    def __init__(self, subset, transform=None):
+        """
+        Initialize the TransformedSubset.
+        Args:
+            subset (torch.utils.data.Subset): The subset to wrap.
+            transform (callable, optional): Transform to apply to the input data.
+        """
+        self.subset = subset
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        """
+        Retrieve an item from the subset and apply the transform to the data.
+        Args:
+            idx (int): Index of the data sample to retrieve.
+        Returns:
+            tuple: (transformed_data, target), where target is the label or ground truth.
+        """
+        data, target = self.subset[idx]
+        if self.transform:
+            data = self.transform(data)
+        return data, target
+
+    def __len__(self):
+        """
+        Get the number of samples in the subset.
+        Returns:
+            int: Length of the dataset.
+        """
+        return len(self.subset)
+
+
+class PrunedBirdCLEFDataModule(L.LightningDataModule):
     """
     Abstract base class for PyTorch Lightning DataModules in the MO810 course work.
     
     Provides the expected interface for training, validation, and test dataloaders.
     """
+    def __init__(self, root_dir: str = "../data/PrunedBirdCLEF", load_mode: str = "disk", train_transform=None, val_transform=None, test_transform=None, batch_size: int = 32, num_workers : int = 4):
+        super().__init__()
+
+        self.train_dataset = PrunedBirdCLEFDataset(root_dir, "train", load_mode, train_transform)
+        self.val_dataset = PrunedBirdCLEFDataset(root_dir, "val", load_mode, val_transform)
+        self.test_dataset = PrunedBirdCLEFDataset(root_dir, "test", load_mode, test_transform)
+
+        self.batch_size = batch_size
+        self.num_workers = num_workers
 
     def train_dataloader(self, fraction=None, samples_per_class=None):
         """
