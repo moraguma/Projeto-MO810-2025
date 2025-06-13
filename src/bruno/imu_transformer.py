@@ -15,7 +15,7 @@ class IMUTransformerEncoder(nn.Module):
         transformer_activation: str = "gelu",
         num_encoder_layers: int = 6,
         permute: bool = False,
-        
+        only_last: bool = False
     ):
         """
         input_shape: (tuple) shape of the input data
@@ -28,12 +28,14 @@ class IMUTransformerEncoder(nn.Module):
         num_encoder_layers: (int) number of transformer encoder layers
         num_classes: (int) number of output classes
         permute: bool, optional. If `True` the input data will be permuted before passing through the model, by default False.
+        only_last: bool, optional. If `True` returns only last embedding of sample sequence
         """
         super().__init__()
 
         self.input_shape = input_shape
         self.transformer_dim = transformer_dim
         self.permute = permute
+        self.only_last = only_last
 
         self.input_proj = nn.Sequential(
             nn.Conv1d(input_shape[0], self.transformer_dim, 1),
@@ -99,7 +101,10 @@ class IMUTransformerEncoder(nn.Module):
             x += self.position_embed
 
         # Transformer Encoder pass
-        #causal_mask = Transformer.generate_square_subsequent_mask(self.input_shape[1], device=x.device)
-        target = self.transformer_encoder(x)#, mask=causal_mask, is_causal=True)
+        causal_mask = Transformer.generate_square_subsequent_mask(self.input_shape[1], device=x.device)
+        target = self.transformer_encoder(x, mask=causal_mask, is_causal=True)
 
-        return target.permute(1,0,2)
+        if self.only_last:
+            return target[-1]
+        else: 
+            return target.permute(1,0,2)

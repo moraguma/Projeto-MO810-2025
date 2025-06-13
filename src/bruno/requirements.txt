@@ -3,3 +3,4 @@ lightning==2.5.1
 minerva-ml==0.3.6b0
 notebook==7.3.2
 torch==2.6.0
+tensorboard==2.19.0
