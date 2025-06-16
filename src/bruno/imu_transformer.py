@@ -15,7 +15,7 @@ class IMUTransformerEncoder(nn.Module):
         transformer_activation: str = "gelu",
         num_encoder_layers: int = 6,
         permute: bool = False,
-        only_last: bool = False
+        return_cls_token: bool = False
     ):
         """
         input_shape: (tuple) shape of the input data
@@ -35,7 +35,7 @@ class IMUTransformerEncoder(nn.Module):
         self.input_shape = input_shape
         self.transformer_dim = transformer_dim
         self.permute = permute
-        self.only_last = only_last
+        self.return_cls_token = return_cls_token
 
         self.input_proj = nn.Sequential(
             nn.Conv1d(input_shape[0], self.transformer_dim, 1),
@@ -62,9 +62,10 @@ class IMUTransformerEncoder(nn.Module):
             num_layers=num_encoder_layers,
             norm=nn.LayerNorm(self.transformer_dim),
         )
-        #self.cls_token = nn.Parameter(
-        #    torch.zeros((1, self.transformer_dim)), requires_grad=True
-        #)
+        if return_cls_token:
+            self.cls_token = nn.Parameter(
+                torch.zeros((1, self.transformer_dim)), requires_grad=True
+            )
 
         if self.encode_position:
             self.position_embed = nn.Parameter(
@@ -93,18 +94,20 @@ class IMUTransformerEncoder(nn.Module):
         x = x.permute(2, 0, 1)
 
         ## Prepend class token
-        #cls_token = self.cls_token.unsqueeze(1).repeat(1, x.shape[1], 1)
-        #x = torch.cat([cls_token, x])
+        if self.return_cls_token:
+            cls_token = self.cls_token.unsqueeze(1).repeat(1, x.shape[1], 1)
+            x = torch.cat([cls_token, x])
 
         # Add the position embedding
         if self.encode_position:
             x += self.position_embed
 
         # Transformer Encoder pass
-        causal_mask = Transformer.generate_square_subsequent_mask(self.input_shape[1], device=x.device)
-        target = self.transformer_encoder(x, mask=causal_mask, is_causal=True)
+        if not self.return_cls_token:
+            causal_mask = Transformer.generate_square_subsequent_mask(self.input_shape[1], device=x.device)
+            target = self.transformer_encoder(x, mask=causal_mask, is_causal=True)
+            target = target.permute(1,0,2)
+        else:
+            target = self.transformer_encoder(x)[0]
 
-        if self.only_last:
-            return target[-1]
-        else: 
-            return target.permute(1,0,2)
+        return target
