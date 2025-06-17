@@ -67,9 +67,10 @@ class IMUTransformerEncoder(nn.Module):
                 torch.zeros((1, self.transformer_dim)), requires_grad=True
             )
 
+        extra_token = 1 if return_cls_token else 0
         if self.encode_position:
             self.position_embed = nn.Parameter(
-                torch.randn(input_shape[1], 1, self.transformer_dim)
+                torch.randn(input_shape[1] + extra_token, 1, self.transformer_dim)
             )
 
         # init
